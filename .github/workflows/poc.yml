@@ -1,0 +1,45 @@
+name: poc-polystella-review
+on:
+  issues:
+    types: [opened, edited]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    steps:
+      # Attacker-controlled title/body (here: the issue) stand in for the
+      # pull request title/body returned by the GitHub API.
+      - name: Get PR details (verbatim replica of cloudflare/polystella review.yml)
+        id: pr-details
+        env:
+          TITLE: ${{ github.event.issue.title }}
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          jq -n --arg t "$TITLE" --arg b "$BODY" \
+            '{title:$t, body:$b, head:{sha:"aabbccddeeff00112233445566778899aabbccdd"}}' > /tmp/pr.json
+          {
+            echo 'title<<PR_TITLE_EOF'
+            jq -r '.title // ""' /tmp/pr.json
+            echo PR_TITLE_EOF
+            echo "head_sha=$(jq -r .head.sha /tmp/pr.json)"
+            echo 'body<<PR_BODY_EOF'
+            jq -r '.body // ""' /tmp/pr.json
+            echo PR_BODY_EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Show outputs the Run Review step would receive
+        env:
+          OUT_TITLE: ${{ steps.pr-details.outputs.title }}
+          OUT_HEAD_SHA: ${{ steps.pr-details.outputs.head_sha }}
+          OUT_BODY: ${{ steps.pr-details.outputs.body }}
+          OUT_WEBHOOK: ${{ steps.pr-details.outputs.webhook }}
+        run: |
+          echo "===== head_sha output (expected aabbccddeeff00112233445566778899aabbccdd) ====="
+          printf '%s\n' "$OUT_HEAD_SHA"
+          echo "===== attacker-created output 'webhook' (did not exist before) ====="
+          printf '%s\n' "$OUT_WEBHOOK"
+          echo "===== PROMPT that would be handed to the agent ====="
+          printf 'Review pull request #1 ("%s").\n\n<head_sha>%s</head_sha>\n<pr_description>\n%s\n</pr_description>\n' \
+            "$OUT_TITLE" "$OUT_HEAD_SHA" "$OUT_BODY"
